@@ -13,18 +13,13 @@
 #include <obs-frontend-api.h>
 
 class QLabel;
+class OBSSourceLabel;
 class QCheckBox;
 class QLineEdit;
 class SourceTree;
 class QSpacerItem;
 class QHBoxLayout;
-class LockedCheckBox;
-class VisibilityCheckBox;
 class VisibilityItemWidget;
-
-class SourceTreeSubItemCheckBox : public QCheckBox {
-	Q_OBJECT
-};
 
 class SourceTreeItem : public QFrame {
 	Q_OBJECT
@@ -33,11 +28,7 @@ class SourceTreeItem : public QFrame {
 	friend class SourceTreeModel;
 
 	void mouseDoubleClickEvent(QMouseEvent *event) override;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 	void enterEvent(QEnterEvent *event) override;
-#else
-	void enterEvent(QEvent *event) override;
-#endif
 	void leaveEvent(QEvent *event) override;
 
 	virtual bool eventFilter(QObject *object, QEvent *event) override;
@@ -64,10 +55,10 @@ private:
 	QSpacerItem *spacer = nullptr;
 	QCheckBox *expand = nullptr;
 	QLabel *iconLabel = nullptr;
-	VisibilityCheckBox *vis = nullptr;
-	LockedCheckBox *lock = nullptr;
+	QCheckBox *vis = nullptr;
+	QCheckBox *lock = nullptr;
 	QHBoxLayout *boxLayout = nullptr;
-	QLabel *label = nullptr;
+	OBSSourceLabel *label = nullptr;
 
 	QLineEdit *editor = nullptr;
 
@@ -75,15 +66,7 @@ private:
 
 	SourceTree *tree;
 	OBSSceneItem sceneitem;
-	OBSSignal sceneRemoveSignal;
-	OBSSignal itemRemoveSignal;
-	OBSSignal groupReorderSignal;
-	OBSSignal selectSignal;
-	OBSSignal deselectSignal;
-	OBSSignal visibleSignal;
-	OBSSignal lockedSignal;
-	OBSSignal renameSignal;
-	OBSSignal removeSignal;
+	std::vector<OBSSignal> sigs;
 
 	virtual void paintEvent(QPaintEvent *event) override;
 
@@ -97,7 +80,6 @@ private slots:
 
 	void VisibilityChanged(bool visible);
 	void LockedChanged(bool locked);
-	void Renamed(const QString &name);
 
 	void ExpandClicked(bool checked);
 
@@ -136,11 +118,9 @@ class SourceTreeModel : public QAbstractListModel {
 
 public:
 	explicit SourceTreeModel(SourceTree *st);
-	~SourceTreeModel();
 
 	virtual int rowCount(const QModelIndex &parent) const override;
-	virtual QVariant data(const QModelIndex &index,
-			      int role) const override;
+	virtual QVariant data(const QModelIndex &index, int role) const override;
 
 	virtual Qt::ItemFlags flags(const QModelIndex &index) const override;
 	virtual Qt::DropActions supportedDropActions() const override;
@@ -168,10 +148,7 @@ class SourceTree : public QListView {
 	void UpdateWidget(const QModelIndex &idx, obs_sceneitem_t *item);
 	void UpdateWidgets(bool force = false);
 
-	inline SourceTreeModel *GetStm() const
-	{
-		return reinterpret_cast<SourceTreeModel *>(model());
-	}
+	inline SourceTreeModel *GetStm() const { return reinterpret_cast<SourceTreeModel *>(model()); }
 
 public:
 	inline SourceTreeItem *GetItemWidget(int idx)
@@ -201,7 +178,7 @@ public:
 public slots:
 	inline void ReorderItems() { GetStm()->ReorderItems(); }
 	inline void RefreshItems() { GetStm()->SceneChanged(); }
-	void Remove(OBSSceneItem item);
+	void Remove(OBSSceneItem item, OBSScene scene);
 	void GroupSelectedItems();
 	void UngroupSelectedGroups();
 	void AddGroup();
@@ -213,9 +190,7 @@ protected:
 	virtual void dropEvent(QDropEvent *event) override;
 	virtual void paintEvent(QPaintEvent *event) override;
 
-	virtual void
-	selectionChanged(const QItemSelection &selected,
-			 const QItemSelection &deselected) override;
+	virtual void selectionChanged(const QItemSelection &selected, const QItemSelection &deselected) override;
 };
 
 class SourceTreeDelegate : public QStyledItemDelegate {
@@ -223,6 +198,5 @@ class SourceTreeDelegate : public QStyledItemDelegate {
 
 public:
 	SourceTreeDelegate(QObject *parent);
-	virtual QSize sizeHint(const QStyleOptionViewItem &option,
-			       const QModelIndex &index) const override;
+	virtual QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 };

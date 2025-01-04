@@ -1,11 +1,12 @@
+#include "../win-update/updater/manifest.hpp"
 #include "update-helpers.hpp"
 #include "shared-update.hpp"
 #include "update-window.hpp"
 #include "remote-text.hpp"
-#include "qt-wrappers.hpp"
 #include "win-update.hpp"
 #include "obs-app.hpp"
 
+#include <qt-wrappers.hpp>
 #include <QMessageBox>
 
 #include <string>
@@ -17,14 +18,13 @@
 
 #include <util/windows/WinHandle.hpp>
 #include <util/util.hpp>
-#include <json11.hpp>
 
 #ifdef BROWSER_AVAILABLE
 #include <browser-panel.hpp>
 #endif
 
 using namespace std;
-using namespace json11;
+using namespace updater;
 
 /* ------------------------------------------------------------------------ */
 
@@ -50,91 +50,48 @@ using namespace json11;
 
 /* ------------------------------------------------------------------------ */
 
-#if defined(OBS_RELEASE_CANDIDATE) && OBS_RELEASE_CANDIDATE > 0
-#define CUR_VER                                                               \
-	((uint64_t)OBS_RELEASE_CANDIDATE_VER << 16ULL | OBS_RELEASE_CANDIDATE \
-								<< 8ULL)
-#define PRE_RELEASE true
-#elif OBS_BETA > 0
-#define CUR_VER ((uint64_t)OBS_BETA_VER << 16ULL | OBS_BETA)
-#define PRE_RELEASE true
-#elif defined(OBS_COMMIT)
-#define CUR_VER 1 << 16ULL
-#define CUR_COMMIT OBS_COMMIT
-#define PRE_RELEASE true
-#else
-#define CUR_VER ((uint64_t)LIBOBS_API_VER << 16ULL)
-#define PRE_RELEASE false
-#endif
-
-#ifndef CUR_COMMIT
-#define CUR_COMMIT "00000000"
-#endif
-
-static bool ParseUpdateManifest(const char *manifest, bool *updatesAvailable,
-				string &notes_str, uint64_t &updateVer,
-				string &branch)
+static bool ParseUpdateManifest(const char *manifest_data, bool *updatesAvailable, string &notes, string &updateVer,
+				const string &branch)
 try {
+	constexpr uint64_t currentVersion = (uint64_t)LIBOBS_API_VER << 16ULL | OBS_RELEASE_CANDIDATE << 8ULL |
+					    OBS_BETA;
+	constexpr bool isPreRelease = currentVersion & 0xffff || std::char_traits<char>::length(OBS_COMMIT);
 
-	string error;
-	Json root = Json::parse(manifest, error);
-	if (!error.empty())
-		throw strprintf("Failed reading json string: %s",
-				error.c_str());
+	json manifestContents = json::parse(manifest_data);
+	Manifest manifest = manifestContents.get<Manifest>();
 
-	if (!root.is_object())
-		throw string("Root of manifest is not an object");
+	if (manifest.version_major == 0 && manifest.commit.empty())
+		throw strprintf("Invalid version number: %d.%d.%d", manifest.version_major, manifest.version_minor,
+				manifest.version_patch);
 
-	int major = root["version_major"].int_value();
-	int minor = root["version_minor"].int_value();
-	int patch = root["version_patch"].int_value();
-	int rc = root["rc"].int_value();
-	int beta = root["beta"].int_value();
-	string commit_hash = root["commit"].string_value();
+	notes = manifest.notes;
 
-	if (major == 0 && commit_hash.empty())
-		throw strprintf("Invalid version number: %d.%d.%d", major,
-				minor, patch);
-
-	const Json &notes = root["notes"];
-	if (!notes.is_string())
-		throw string("'notes' value invalid");
-
-	notes_str = notes.string_value();
-
-	const Json &packages = root["packages"];
-	if (!packages.is_array())
-		throw string("'packages' value invalid");
-
-	uint64_t cur_ver;
-	uint64_t new_ver;
-
-	if (commit_hash.empty()) {
-		cur_ver = CUR_VER;
-		new_ver = MAKE_SEMANTIC_VERSION(
-			(uint64_t)major, (uint64_t)minor, (uint64_t)patch);
+	if (manifest.commit.empty()) {
+		uint64_t new_ver = MAKE_SEMANTIC_VERSION((uint64_t)manifest.version_major,
+							 (uint64_t)manifest.version_minor,
+							 (uint64_t)manifest.version_patch);
 		new_ver <<= 16;
 		/* RC builds are shifted so that rc1 and beta1 versions do not result
 		 * in the same new_ver. */
-		if (rc > 0)
-			new_ver |= (uint64_t)rc << 8;
-		else if (beta > 0)
-			new_ver |= (uint64_t)beta;
+		if (manifest.rc > 0)
+			new_ver |= (uint64_t)manifest.rc << 8;
+		else if (manifest.beta > 0)
+			new_ver |= (uint64_t)manifest.beta;
+
+		updateVer = to_string(new_ver);
+
+		/* When using a pre-release build or non-default branch we only check if
+		 * the manifest version is different, so that it can be rolled back. */
+		if (branch != WIN_DEFAULT_BRANCH || isPreRelease)
+			*updatesAvailable = new_ver != currentVersion;
+		else
+			*updatesAvailable = new_ver > currentVersion;
 	} else {
 		/* Test or nightly builds may not have a (valid) version number,
 		 * so compare commit hashes instead. */
-		cur_ver = stoul(CUR_COMMIT, nullptr, 16);
-		new_ver = stoul(commit_hash.substr(0, 8), nullptr, 16);
+		updateVer = manifest.commit.substr(0, 8);
+		*updatesAvailable = !currentVersion || !manifest.commit.compare(0, strlen(OBS_COMMIT), OBS_COMMIT);
 	}
-
-	updateVer = new_ver;
-
-	/* When using a pre-release build or non-default branch we only check if
-	 * the manifest version is different, so that it can be rolled-back. */
-	if (branch != WIN_DEFAULT_BRANCH || PRE_RELEASE)
-		*updatesAvailable = new_ver != cur_ver;
-	else
-		*updatesAvailable = new_ver > cur_ver;
 
 	return true;
 
@@ -143,16 +100,11 @@ try {
 	return false;
 }
 
-#undef CUR_COMMIT
-#undef CUR_VER
-#undef PRE_RELEASE
-
 /* ------------------------------------------------------------------------ */
 
 bool GetBranchAndUrl(string &selectedBranch, string &manifestUrl)
 {
-	const char *config_branch =
-		config_get_string(GetGlobalConfig(), "General", "UpdateBranch");
+	const char *config_branch = config_get_string(App()->GetAppConfig(), "General", "UpdateBranch");
 	if (!config_branch)
 		return true;
 
@@ -169,9 +121,7 @@ bool GetBranchAndUrl(string &selectedBranch, string &manifestUrl)
 			selectedBranch = branch.name.toStdString();
 			if (branch.name != WIN_DEFAULT_BRANCH) {
 				manifestUrl = WIN_MANIFEST_BASE_URL;
-				manifestUrl += "manifest_" +
-					       branch.name.toStdString() +
-					       ".json";
+				manifestUrl += "manifest_" + branch.name.toStdString() + ".json";
 			}
 		}
 		break;
@@ -189,12 +139,11 @@ void AutoUpdateThread::infoMsg(const QString &title, const QString &text)
 
 void AutoUpdateThread::info(const QString &title, const QString &text)
 {
-	QMetaObject::invokeMethod(this, "infoMsg", Qt::BlockingQueuedConnection,
-				  Q_ARG(QString, title), Q_ARG(QString, text));
+	QMetaObject::invokeMethod(this, "infoMsg", Qt::BlockingQueuedConnection, Q_ARG(QString, title),
+				  Q_ARG(QString, text));
 }
 
-int AutoUpdateThread::queryUpdateSlot(bool localManualUpdate,
-				      const QString &text)
+int AutoUpdateThread::queryUpdateSlot(bool localManualUpdate, const QString &text)
 {
 	OBSUpdate updateDlg(App()->GetMainWindow(), localManualUpdate, text);
 	return updateDlg.exec();
@@ -204,20 +153,16 @@ int AutoUpdateThread::queryUpdate(bool localManualUpdate, const char *text_utf8)
 {
 	int ret = OBSUpdate::No;
 	QString text = text_utf8;
-	QMetaObject::invokeMethod(this, "queryUpdateSlot",
-				  Qt::BlockingQueuedConnection,
-				  Q_RETURN_ARG(int, ret),
-				  Q_ARG(bool, localManualUpdate),
-				  Q_ARG(QString, text));
+	QMetaObject::invokeMethod(this, "queryUpdateSlot", Qt::BlockingQueuedConnection, Q_RETURN_ARG(int, ret),
+				  Q_ARG(bool, localManualUpdate), Q_ARG(QString, text));
 	return ret;
 }
 
 bool AutoUpdateThread::queryRepairSlot()
 {
-	QMessageBox::StandardButton res = OBSMessageBox::question(
-		App()->GetMainWindow(), QTStr("Updater.RepairConfirm.Title"),
-		QTStr("Updater.RepairConfirm.Text"),
-		QMessageBox::Yes | QMessageBox::Cancel);
+	QMessageBox::StandardButton res =
+		OBSMessageBox::question(App()->GetMainWindow(), QTStr("Updater.RepairConfirm.Title"),
+					QTStr("Updater.RepairConfirm.Text"), QMessageBox::Yes | QMessageBox::Cancel);
 
 	return res == QMessageBox::Yes;
 }
@@ -225,9 +170,7 @@ bool AutoUpdateThread::queryRepairSlot()
 bool AutoUpdateThread::queryRepair()
 {
 	bool ret = false;
-	QMetaObject::invokeMethod(this, "queryRepairSlot",
-				  Qt::BlockingQueuedConnection,
-				  Q_RETURN_ARG(bool, ret));
+	QMetaObject::invokeMethod(this, "queryRepairSlot", Qt::BlockingQueuedConnection, Q_RETURN_ARG(bool, ret));
 	return ret;
 }
 
@@ -240,28 +183,21 @@ try {
 	bool updatesAvailable = false;
 
 	struct FinishedTrigger {
-		inline ~FinishedTrigger()
-		{
-			QMetaObject::invokeMethod(App()->GetMainWindow(),
-						  "updateCheckFinished");
-		}
+		inline ~FinishedTrigger() { QMetaObject::invokeMethod(App()->GetMainWindow(), "updateCheckFinished"); }
 	} finishedTrigger;
 
 	/* ----------------------------------- *
 	 * get branches from server            */
 
-	if (FetchAndVerifyFile("branches", "obs-studio\\updates\\branches.json",
-			       WIN_BRANCHES_URL, &text))
+	if (FetchAndVerifyFile("branches", "obs-studio\\updates\\branches.json", WIN_BRANCHES_URL, &text))
 		App()->SetBranchData(text);
 
 	/* ----------------------------------- *
 	 * check branch and get manifest url   */
 
 	if (!GetBranchAndUrl(branch, manifestUrl)) {
-		config_set_string(GetGlobalConfig(), "General", "UpdateBranch",
-				  WIN_DEFAULT_BRANCH);
-		info(QTStr("Updater.BranchNotFound.Title"),
-		     QTStr("Updater.BranchNotFound.Text"));
+		config_set_string(App()->GetAppConfig(), "General", "UpdateBranch", WIN_DEFAULT_BRANCH);
+		info(QTStr("Updater.BranchNotFound.Title"), QTStr("Updater.BranchNotFound.Text"));
 	}
 
 	/* allow server to know if this was a manual update check in case
@@ -273,45 +209,39 @@ try {
 	 * get manifest from server            */
 
 	text.clear();
-	if (!FetchAndVerifyFile("manifest",
-				"obs-studio\\updates\\manifest.json",
-				manifestUrl.c_str(), &text, extraHeaders))
+	if (!FetchAndVerifyFile("manifest", "obs-studio\\updates\\manifest.json", manifestUrl.c_str(), &text,
+				extraHeaders))
 		return;
 
 	/* ----------------------------------- *
 	 * check manifest for update           */
 
 	string notes;
-	uint64_t updateVer = 0;
+	string updateVer;
 
-	if (!ParseUpdateManifest(text.c_str(), &updatesAvailable, notes,
-				 updateVer, branch))
+	if (!ParseUpdateManifest(text.c_str(), &updatesAvailable, notes, updateVer, branch))
 		throw string("Failed to parse manifest");
 
 	if (!updatesAvailable && !repairMode) {
 		if (manualUpdate)
-			info(QTStr("Updater.NoUpdatesAvailable.Title"),
-			     QTStr("Updater.NoUpdatesAvailable.Text"));
+			info(QTStr("Updater.NoUpdatesAvailable.Title"), QTStr("Updater.NoUpdatesAvailable.Text"));
 		return;
 	} else if (updatesAvailable && repairMode) {
-		info(QTStr("Updater.RepairButUpdatesAvailable.Title"),
-		     QTStr("Updater.RepairButUpdatesAvailable.Text"));
+		info(QTStr("Updater.RepairButUpdatesAvailable.Title"), QTStr("Updater.RepairButUpdatesAvailable.Text"));
 		return;
 	}
 
 	/* ----------------------------------- *
 	 * skip this version if set to skip    */
 
-	uint64_t skipUpdateVer = config_get_uint(GetGlobalConfig(), "General",
-						 "SkipUpdateVersion");
-	if (!manualUpdate && updateVer == skipUpdateVer && !repairMode)
+	const char *skipUpdateVer = config_get_string(App()->GetAppConfig(), "General", "SkipUpdateVersion");
+	if (!manualUpdate && !repairMode && skipUpdateVer && updateVer == skipUpdateVer)
 		return;
 
 	/* ----------------------------------- *
 	 * fetch updater module                */
 
-	if (!FetchAndVerifyFile("updater", "obs-studio\\updates\\updater.exe",
-				WIN_UPDATER_URL, nullptr))
+	if (!FetchAndVerifyFile("updater", "obs-studio\\updates\\updater.exe", WIN_UPDATER_URL, nullptr))
 		return;
 
 	/* ----------------------------------- *
@@ -326,14 +256,12 @@ try {
 		if (queryResult == OBSUpdate::No) {
 			if (!manualUpdate) {
 				long long t = (long long)time(nullptr);
-				config_set_int(GetGlobalConfig(), "General",
-					       "LastUpdateCheck", t);
+				config_set_int(App()->GetAppConfig(), "General", "LastUpdateCheck", t);
 			}
 			return;
 
 		} else if (queryResult == OBSUpdate::Skip) {
-			config_set_uint(GetGlobalConfig(), "General",
-					"SkipUpdateVersion", updateVer);
+			config_set_string(App()->GetAppConfig(), "General", "SkipUpdateVersion", updateVer.c_str());
 			return;
 		}
 	}
@@ -350,8 +278,7 @@ try {
 	/* ----------------------------------- *
 	 * execute updater                     */
 
-	BPtr<char> updateFilePath =
-		GetConfigPathPtr("obs-studio\\updates\\updater.exe");
+	BPtr<char> updateFilePath = GetAppConfigPathPtr("obs-studio\\updates\\updater.exe");
 	BPtr<wchar_t> wUpdateFilePath;
 
 	size_t size = os_utf8_to_wcs_ptr(updateFilePath, 0, &wUpdateFilePath);
@@ -364,11 +291,25 @@ try {
 	execInfo.cbSize = sizeof(execInfo);
 	execInfo.lpFile = wUpdateFilePath;
 
-	string parameters = "";
-	if (App()->IsPortableMode())
-		parameters += "--portable";
+	string parameters;
 	if (branch != WIN_DEFAULT_BRANCH)
 		parameters += "--branch=" + branch;
+
+	obs_cmdline_args obs_args = obs_get_cmdline_args();
+	for (int idx = 1; idx < obs_args.argc; idx++) {
+		if (!parameters.empty())
+			parameters += " ";
+
+		parameters += obs_args.argv[idx];
+	}
+
+	/* Portable mode can be enabled via sentinel files, so copying the
+	 * command line doesn't guarantee the flag to be there. */
+	if (App()->IsPortableMode() && parameters.find("--portable") == string::npos) {
+		if (!parameters.empty())
+			parameters += " ";
+		parameters += "--portable";
+	}
 
 	BPtr<wchar_t> lpParameters;
 	size = os_utf8_to_wcs_ptr(parameters.c_str(), 0, &lpParameters);
@@ -382,14 +323,13 @@ try {
 	if (!ShellExecuteEx(&execInfo)) {
 		QString msg = QTStr("Updater.FailedToLaunch");
 		info(msg, msg);
-		throw strprintf("Can't launch updater '%s': %d",
-				updateFilePath.Get(), GetLastError());
+		throw strprintf("Can't launch updater '%s': %d", updateFilePath.Get(), GetLastError());
 	}
 
 	/* force OBS to perform another update check immediately after updating
 	 * in case of issues with the new version */
-	config_set_int(GetGlobalConfig(), "General", "LastUpdateCheck", 0);
-	config_set_int(GetGlobalConfig(), "General", "SkipUpdateVersion", 0);
+	config_set_int(App()->GetAppConfig(), "General", "LastUpdateCheck", 0);
+	config_set_string(App()->GetAppConfig(), "General", "SkipUpdateVersion", "0");
 
 	QMetaObject::invokeMethod(App()->GetMainWindow(), "close");
 

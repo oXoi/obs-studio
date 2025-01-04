@@ -37,14 +37,12 @@ typedef struct _SECTION_BASIC_INFORMATION {
 	LARGE_INTEGER Size;
 } SECTION_BASIC_INFORMATION;
 
-typedef NTSTATUS(STDMETHODCALLTYPE *fn_NtMapViewOfSection)(
-	HANDLE, HANDLE, PVOID, ULONG_PTR, SIZE_T, PLARGE_INTEGER, PSIZE_T,
-	SECTION_INHERIT, ULONG, ULONG);
+typedef NTSTATUS(STDMETHODCALLTYPE *fn_NtMapViewOfSection)(HANDLE, HANDLE, PVOID, ULONG_PTR, SIZE_T, PLARGE_INTEGER,
+							   PSIZE_T, SECTION_INHERIT, ULONG, ULONG);
 
 typedef NTSTATUS(STDMETHODCALLTYPE *fn_NtUnmapViewOfSection)(HANDLE, PVOID);
 
-typedef NTSTATUS(STDMETHODCALLTYPE *fn_NtQuerySection)(
-	HANDLE, SECTION_INFORMATION_CLASS, PVOID, SIZE_T, PSIZE_T);
+typedef NTSTATUS(STDMETHODCALLTYPE *fn_NtQuerySection)(HANDLE, SECTION_INFORMATION_CLASS, PVOID, SIZE_T, PSIZE_T);
 
 static fn_NtMapViewOfSection ntMap;
 static fn_NtUnmapViewOfSection ntUnmap;
@@ -124,8 +122,9 @@ static blocked_module_t blocked_modules[] = {
 	// Wacom / Other tablet driver, locks up UI
 	{L"\\wintab32.dll", 0, 0, TS_IGNORE},
 
-	// Adobe Dynamic Link (Adobe CC), crashes in its own thread
-	{L"\\mc_trans_video_imagescaler.dll", 0, 0, TS_IGNORE},
+	// MainConcept Image Scaler, crashes in its own thread. Block versions
+	// older than the one Elgato uses (2016-02-15).
+	{L"\\mc_trans_video_imagescaler.dll", 0, 1455495131, TS_LESS_THAN},
 
 	// Weird Polish banking "security" software, breaks UI
 	{L"\\wslbscr64.dll", 0, 0, TS_IGNORE},
@@ -148,6 +147,14 @@ static blocked_module_t blocked_modules[] = {
 	// Korean banking "security" software, crashes randomly
 	{L"\\t_prevent64.dll", 0, 0, TS_IGNORE},
 
+	// Bandicam, doesn't unhook cleanly and freezes preview
+	// Reference: https://github.com/obsproject/obs-studio/issues/8552
+	{L"\\bdcam64.dll", 0, 0, TS_IGNORE},
+
+	// "Citrix ICAService" that crashes during DShow enumeration
+	// Reference: https://obsproject.com/forum/threads/165863/
+	{L"\\ctxdsendpoints64.dll", 0, 0, TS_IGNORE},
+
 	// Generic named unity capture filter. Unfortunately only a forked version
 	// has a critical fix to prevent deadlocks during enumeration. We block
 	// all versions since if someone didn't change the DLL name they likely
@@ -164,6 +171,26 @@ static blocked_module_t blocked_modules[] = {
 	// Obsolete unfixed versions of VTuber Maker capture filter
 	{L"\\live3dvirtualcam\\lib64_new.dll", 0, 0, TS_IGNORE},
 	{L"\\live3dvirtualcam\\lib64.dll", 0, 0, TS_IGNORE},
+
+	// VirtualMotionCapture capture filter < 2022-12-18 without above fix
+	// Reference: https://github.com/obsproject/obs-studio/issues/8552
+	{L"\\vmc_camerafilter64bit.dll", 0, 1671349891, TS_LESS_THAN},
+
+	// HolisticMotionCapture capture filter, not yet patched. Blocking
+	// all previous versions in case an update is released.
+	// Reference: https://github.com/obsproject/obs-studio/issues/8552
+	{L"\\holisticmotioncapturefilter64bit.dll", 0, 1680044549, TS_LESS_THAN},
+
+	// Elgato Stream Deck plugin < 2024-02-01
+	// Blocking all previous versions because they have undefined behavior
+	// that results in crashes.
+	// Reference: https://github.com/obsproject/obs-studio/issues/10245
+	{L"\\streamdeckplugin.dll", 0, 1706745600, TS_LESS_THAN},
+
+	// TikTok Live Studio Virtual Camera, causes freezing and other issues during enumeration
+	// Different versions seem to be installed in different places, so we have to match on DLL only.
+	// Reference: https://www.hanselman.com/blog/webcam-randomly-pausing-in-obs-discord-and-websites-lsvcam-and-tiktok-studio
+	{L"\\lsvcam.dll", 0, 0, TS_IGNORE},
 };
 
 static bool is_module_blocked(wchar_t *dll, uint32_t timestamp)
@@ -191,16 +218,13 @@ static bool is_module_blocked(wchar_t *dll, uint32_t timestamp)
 			if (b->method == TS_IGNORE) {
 				b->blocked_count++;
 				return true;
-			} else if (b->method == TS_EQUAL &&
-				   timestamp == b->timestamp) {
+			} else if (b->method == TS_EQUAL && timestamp == b->timestamp) {
 				b->blocked_count++;
 				return true;
-			} else if (b->method == TS_LESS_THAN &&
-				   timestamp < b->timestamp) {
+			} else if (b->method == TS_LESS_THAN && timestamp < b->timestamp) {
 				b->blocked_count++;
 				return true;
-			} else if (b->method == TS_GREATER_THAN &&
-				   timestamp > b->timestamp) {
+			} else if (b->method == TS_GREATER_THAN && timestamp > b->timestamp) {
 				b->blocked_count++;
 				return true;
 			} else if (b->method == TS_ALLOW_ONLY_THIS) {
@@ -227,12 +251,10 @@ static bool is_module_blocked(wchar_t *dll, uint32_t timestamp)
 	return should_block;
 }
 
-static NTSTATUS
-NtMapViewOfSection_hook(HANDLE SectionHandle, HANDLE ProcessHandle,
-			PVOID *BaseAddress, ULONG_PTR ZeroBits,
-			SIZE_T CommitSize, PLARGE_INTEGER SectionOffset,
-			PSIZE_T ViewSize, SECTION_INHERIT InheritDisposition,
-			ULONG AllocationType, ULONG Win32Protect)
+static NTSTATUS NtMapViewOfSection_hook(HANDLE SectionHandle, HANDLE ProcessHandle, PVOID *BaseAddress,
+					ULONG_PTR ZeroBits, SIZE_T CommitSize, PLARGE_INTEGER SectionOffset,
+					PSIZE_T ViewSize, SECTION_INHERIT InheritDisposition, ULONG AllocationType,
+					ULONG Win32Protect)
 {
 	SECTION_BASIC_INFORMATION section_information;
 	wchar_t fileName[MAX_PATH];
@@ -240,18 +262,16 @@ NtMapViewOfSection_hook(HANDLE SectionHandle, HANDLE ProcessHandle,
 	NTSTATUS ret;
 	uint32_t timestamp = 0;
 
-	ret = ntMap(SectionHandle, ProcessHandle, BaseAddress, ZeroBits,
-		    CommitSize, SectionOffset, ViewSize, InheritDisposition,
-		    AllocationType, Win32Protect);
+	ret = ntMap(SectionHandle, ProcessHandle, BaseAddress, ZeroBits, CommitSize, SectionOffset, ViewSize,
+		    InheritDisposition, AllocationType, Win32Protect);
 
 	// Verify map and process
 	if (ret < 0 || ProcessHandle != GetCurrentProcess())
 		return ret;
 
 	// Fetch section information
-	if (ntQuery(SectionHandle, SectionBasicInformation,
-		    &section_information, sizeof(section_information),
-		    &wrote) < 0)
+	if (ntQuery(SectionHandle, SectionBasicInformation, &section_information, sizeof(section_information), &wrote) <
+	    0)
 		return ret;
 
 	// Verify fetch was successful
@@ -282,8 +302,7 @@ NtMapViewOfSection_hook(HANDLE SectionHandle, HANDLE ProcessHandle,
 	}
 
 	// Get the actual filename if possible
-	if (K32GetMappedFileNameW(ProcessHandle, *BaseAddress, fileName,
-				  _countof(fileName)) == 0)
+	if (K32GetMappedFileNameW(ProcessHandle, *BaseAddress, fileName, _countof(fileName)) == 0)
 		return ret;
 
 	if (is_module_blocked(fileName, timestamp)) {
@@ -304,8 +323,7 @@ void install_dll_blocklist_hook(void)
 	if (!ntMap)
 		return;
 
-	ntUnmap = (fn_NtUnmapViewOfSection)GetProcAddress(
-		nt, "NtUnmapViewOfSection");
+	ntUnmap = (fn_NtUnmapViewOfSection)GetProcAddress(nt, "NtUnmapViewOfSection");
 	if (!ntUnmap)
 		return;
 
@@ -332,9 +350,7 @@ void log_blocked_dlls(void)
 	for (int i = 0; i < _countof(blocked_modules); i++) {
 		blocked_module_t *b = &blocked_modules[i];
 		if (b->blocked_count) {
-			blog(LOG_WARNING,
-			     "Blocked loading of '%S' %" PRIu64 " time%S.",
-			     b->name, b->blocked_count,
+			blog(LOG_WARNING, "Blocked loading of '%S' %" PRIu64 " time%S.", b->name, b->blocked_count,
 			     b->blocked_count == 1 ? L"" : L"s");
 		}
 	}

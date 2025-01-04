@@ -1,5 +1,5 @@
 /******************************************************************************
-    Copyright (C) 2023 by Hugh Bailey <obs.jim@gmail.com>
+    Copyright (C) 2023 by Lain Bailey <lain@obsproject.com>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,7 +22,5 @@
 
 struct encoder_packet;
 
-extern void obs_parse_av1_packet(struct encoder_packet *avc_packet,
-				 const struct encoder_packet *src);
-extern size_t obs_parse_av1_header(uint8_t **header, const uint8_t *data,
-				   size_t size);
+extern void obs_parse_av1_packet(struct encoder_packet *avc_packet, const struct encoder_packet *src);
+extern size_t obs_parse_av1_header(uint8_t **header, const uint8_t *data, size_t size);

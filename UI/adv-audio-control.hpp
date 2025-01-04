@@ -46,23 +46,14 @@ private:
 	QPointer<QCheckBox> mixer5;
 	QPointer<QCheckBox> mixer6;
 
-	OBSSignal volChangedSignal;
-	OBSSignal syncOffsetSignal;
-	OBSSignal flagsSignal;
-	OBSSignal monitoringTypeSignal;
-	OBSSignal mixersSignal;
-	OBSSignal activateSignal;
-	OBSSignal deactivateSignal;
-	OBSSignal balChangedSignal;
-	OBSSignal renameSignal;
+	std::vector<OBSSignal> sigs;
 
 	static void OBSSourceActivated(void *param, calldata_t *calldata);
 	static void OBSSourceDeactivated(void *param, calldata_t *calldata);
 	static void OBSSourceFlagsChanged(void *param, calldata_t *calldata);
 	static void OBSSourceVolumeChanged(void *param, calldata_t *calldata);
 	static void OBSSourceSyncChanged(void *param, calldata_t *calldata);
-	static void OBSSourceMonitoringTypeChanged(void *param,
-						   calldata_t *calldata);
+	static void OBSSourceMonitoringTypeChanged(void *param, calldata_t *calldata);
 	static void OBSSourceMixersChanged(void *param, calldata_t *calldata);
 	static void OBSSourceBalanceChanged(void *param, calldata_t *calldata);
 	static void OBSSourceRenamed(void *param, calldata_t *calldata);
@@ -93,11 +84,5 @@ public slots:
 	void balanceChanged(int val);
 	void syncOffsetChanged(int milliseconds);
 	void monitoringTypeChanged(int index);
-	void mixer1Changed(bool checked);
-	void mixer2Changed(bool checked);
-	void mixer3Changed(bool checked);
-	void mixer4Changed(bool checked);
-	void mixer5Changed(bool checked);
-	void mixer6Changed(bool checked);
 	void ResetBalance();
 };

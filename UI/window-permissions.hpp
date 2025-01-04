@@ -1,5 +1,5 @@
 /******************************************************************************
-    Copyright (C) 2014 by Hugh Bailey <obs.jim@gmail.com>
+    Copyright (C) 2023 by Lain Bailey <lain@obsproject.com>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -27,13 +27,11 @@ class OBSPermissions : public QDialog {
 
 private:
 	std::unique_ptr<Ui::OBSPermissions> ui;
-	void SetStatus(QPushButton *btn, MacPermissionStatus status,
-		       const QString &preference);
+	void SetStatus(QPushButton *btn, MacPermissionStatus status, const QString &preference);
 
 public:
-	OBSPermissions(QWidget *parent, MacPermissionStatus capture,
-		       MacPermissionStatus video, MacPermissionStatus audio,
-		       MacPermissionStatus accessibility);
+	OBSPermissions(QWidget *parent, MacPermissionStatus capture, MacPermissionStatus video,
+		       MacPermissionStatus audio, MacPermissionStatus accessibility);
 
 private slots:
 	void on_capturePermissionButton_clicked();

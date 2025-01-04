@@ -1,5 +1,5 @@
 /******************************************************************************
-    Copyright (C) 2013 by Hugh Bailey <obs.jim@gmail.com>
+    Copyright (C) 2023 by Lain Bailey <lain@obsproject.com>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -35,6 +35,8 @@ bool IsAlwaysOnTop(QWidget *window);
 void SetAlwaysOnTop(QWidget *window, bool enable);
 
 bool SetDisplayAffinitySupported(void);
+
+bool HighContrastEnabled();
 
 enum TaskbarOverlayStatus {
 	TaskbarOverlayStatusInactive,
@@ -74,9 +76,6 @@ public:
 	RunOnceMutex &operator=(RunOnceMutex &&rom);
 };
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 4, 0)
-QString GetMonitorName(const QString &id);
-#endif
 bool IsRunningOnWine();
 #endif
 
@@ -103,8 +102,7 @@ void InstallNSThreadLocks();
 void disableColorSpaceConversion(QWidget *window);
 void SetMacOSDarkMode(bool dark);
 
-MacPermissionStatus CheckPermissionWithPrompt(MacPermissionType type,
-					      bool prompt_for_permission);
+MacPermissionStatus CheckPermissionWithPrompt(MacPermissionType type, bool prompt_for_permission);
 #define CheckPermission(x) CheckPermissionWithPrompt(x, false)
 #define RequestPermission(x) CheckPermissionWithPrompt(x, true)
 void OpenMacOSPrivacyPreferences(const char *tab);
