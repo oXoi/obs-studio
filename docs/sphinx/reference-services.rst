@@ -157,9 +157,13 @@ Service Definition Structure
             the data manually (typically best to use strlist_split to
             generate this)
 
+   .. versionadded:: 29.1
+
 .. member:: const char *(*obs_service_info.get_protocol)(void *data)
 
    :return: The protocol used by the service
+
+   .. versionadded:: 29.1
 
 .. member:: const char *(*obs_service_info.get_connect_info)(void *data, uint32_t type)
 
@@ -184,13 +188,19 @@ Service Definition Structure
 
    Irrelevant or unused types can return `NULL`.
 
+   .. versionadded:: 29.1
+
 .. member:: bool (*obs_service_info.can_try_to_connect)(void *data)
+
+   (Optional)
 
    :return: If the service has all the needed connection info to be
             able to connect.
 
    NOTE: If not set, :c:func:`obs_service_can_try_to_connect()`
    returns *true* by default.
+
+   .. versionadded:: 29.1
 
 General Service Functions
 -------------------------
@@ -228,15 +238,6 @@ General Service Functions
                             if none
    :return:                 A reference to the newly created service, or
                             *NULL* if failed
-
----------------------
-
-.. function:: void obs_service_addref(obs_service_t *service)
-
-   Adds a reference to a service.
-
-.. deprecated:: 27.2.0
-   Use :c:func:`obs_service_get_ref()` instead.
 
 ---------------------
 
@@ -309,42 +310,6 @@ General Service Functions
 
 ---------------------
 
-.. function:: const char *obs_service_get_url(const obs_service_t *service)
-
-  :return: The URL currently used for this service
-
-.. deprecated:: 29.1.0
-   Use :c:func:`obs_service_get_connect_info()` instead.
-
----------------------
-
-.. function:: const char *obs_service_get_key(const obs_service_t *service)
-
-  :return: Stream key (if any) currently used for this service
-
-.. deprecated:: 29.1.0
-   Use :c:func:`obs_service_get_connect_info()` instead.
-
----------------------
-
-.. function:: const char *obs_service_get_username(const obs_service_t *service)
-
-   :return: User name (if any) currently used for this service
-
-.. deprecated:: 29.1.0
-   Use :c:func:`obs_service_get_connect_info()` instead.
-
----------------------
-
-.. function:: const char *obs_service_get_password(const obs_service_t *service)
-
-   :return: Password (if any) currently used for this service
-
-.. deprecated:: 29.1.0
-   Use :c:func:`obs_service_get_connect_info()` instead.
-
----------------------
-
 .. function:: void obs_service_apply_encoder_settings(obs_service_t *service, obs_data_t *video_encoder_settings, obs_data_t *audio_encoder_settings)
 
    Applies service-specific video encoder settings.
@@ -368,11 +333,15 @@ General Service Functions
             codecs for the service, terminated with a *NULL* pointer.
             Does not need to be freed
 
+   .. versionadded:: 29.1
+
 ---------------------
 
 .. function:: const char *obs_service_get_protocol(const obs_service_t *service)
 
    :return: Protocol currently used for this service
+
+   .. versionadded:: 29.1
 
 ---------------------
 
@@ -380,17 +349,27 @@ General Service Functions
 
    :return: The output type that should be preferred with this service
 
+   .. versionadded:: 29.1
+
+---------------------
+
 .. function:: const char *obs_service_get_connect_info(const obs_service_t *service, uint32_t type)
 
    :param type: Check :c:member:`obs_service_info.get_connect_info` for
                 type values.
    :return: Connection info related to the type value.
 
+   .. versionadded:: 29.1
+
+---------------------
+
 .. function:: bool obs_service_can_try_to_connect(const obs_service_t *service)
 
    :return: If the service has all the needed connection info to be
             able to connect. Returns `true` if
             :c:member:`obs_service_info.can_try_to_connect` is not set.
+
+   .. versionadded:: 29.1
 
 .. ---------------------------------------------------------------------------
 
